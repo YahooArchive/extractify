@@ -72,6 +72,7 @@ module.exports = function extractify(b, opts) {
         onReset = true;
         addHooks();
     });
+
     addHooks();
 
     function addHooks() {
@@ -103,18 +104,20 @@ module.exports = function extractify(b, opts) {
         b.pipeline.get('label').push(through.obj(function(row, enc, next) {
             if (!lazyBundleMapDestination) {
                 if (row.entry && injectOnce && lazyBundleMapInjectSoft) {
-                    row.source = 'window._extractedModuleBundleMap=' +
-                        JSON.stringify(moduleBundleMap) + ';\n' + row.source;
+                    row.source = 'if (typeof window !== "undefined") { window._extractedModuleBundleMap=' +
+                        JSON.stringify(moduleBundleMap) + ';}\n' + row.source;
                     injectOnce = false;
                 }
-            } else if (path.resolve(basedir, lazyBundleMapDestination) === row.file) {
-                mapObject = require(row.file);
-                mapObject = xtend(mapObject, moduleBundleMap);
-
-                if (lazyBundleMapInjectSoft) {
+            } else {
+                if (lazyBundleMapInjectSoft && path.resolve(basedir, lazyBundleMapDestination) === row.file) {
+                    mapObject = require(row.file);
+                    mapObject = xtend(mapObject, moduleBundleMap);
                     row.source = 'module.exports=' + JSON.stringify(mapObject, null, 4);
-                } else {
-                    fs.writeFileSync(lazyBundleMapDestination, JSON.stringify(mapObject, null, 4), 'utf8');
+                } else if (lazyBundleMapInjectSoft === false) {
+                    fs.writeFileSync(path.resolve(basedir, lazyBundleMapDestination), 
+                        JSON.stringify(moduleBundleMap, null, 4), {
+                        encoding: 'utf8'
+                    });
                 }
             }
 
@@ -265,8 +268,7 @@ module.exports = function extractify(b, opts) {
                 var depFile = '';
                 var buildLazyBundle = function(dep) {
                     var lazyOps = xtend(bopts, {
-                        hasExports: true,
-                        extensions: ['/index.js']
+                        hasExports: true
                     });
                     var lazyB;
 
@@ -286,7 +288,7 @@ module.exports = function extractify(b, opts) {
 
                     // strip modules are already in main bundle
                     dep._xExternalDeps.forEach(function(file) {
-                        lazyB.external(file);
+                        lazyB.external(file, lazyOps);
                     });
 
                     // strip vendors
@@ -339,17 +341,9 @@ module.exports = function extractify(b, opts) {
                     });
 
                     Object.keys(allMDs).forEach(function(key) {
-                        // console.log('\n\n\n\nMain Entry', key.replace(basedir, ''));
-                        // console.log(JSON.stringify(allMDs[key].mainDep._xDeps,null,4));
-
-                        // console.log('Main Entry ', key.replace(basedir, ''), 'lazy (external) modules:');
-                        // console.log(JSON.stringify(allMDs[key].mainDep._xExternalDeps,null,4));
-                        // console.log('Main Entry ', key.replace(basedir, ''), 'EXPOSED module:');
-                        // console.log(JSON.stringify(allMDs[key].mainDep._xExposedDeps,null,4));
-
                         // extract lazy modules
                         allMDs[key].mainDep._xExternalDeps.forEach(function(externalDep) {
-                            b.external(externalDep);
+                            b.external(externalDep, bopts);
                         });
 
                         // expose dependencies
@@ -365,13 +359,6 @@ module.exports = function extractify(b, opts) {
                         });
 
                         Object.keys(allMDs[key].lazyDeps).forEach(function(lazyKey) {
-                            // console.log('\n\nMain Entry', key.replace(basedir, ''), ' -> Lazy Entry'
-                            //     , lazyKey.replace(basedir, ''));
-                            // console.log(JSON.stringify(allMDs[key].lazyDeps[lazyKey]._xDeps,null,4));
-                            // console.log('Main Entry', key.replace(basedir, ''), ' -> Lazy Entry external'
-                            //     , lazyKey.replace(basedir, ''));
-                            // console.log(JSON.stringify(allMDs[key].lazyDeps[lazyKey]._xExternalDeps,null,4));
-
                             // Create the lazy bundle now
                             buildLazyBundle(allMDs[key].lazyDeps[lazyKey]);
                         });
