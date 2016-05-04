@@ -1,4 +1,14 @@
-build/
-node_modules/
-coverage/
-.nyc_output/
+node_modules
+npm-debug.log
+ynpm-debug.log
+.DS_Store
+.nyc_output
+
+# docs directory
+docs
+
+# build directory
+build
+bundle
+artifacts
+coverage

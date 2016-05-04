@@ -15,7 +15,7 @@
   ],
   "main": "index.js",
   "scripts": {
-    "test": "tap test/*.js"
+    "test": "tap test/*.js --cov"
   },
   "author": "Devrim Tufan <tufandevrim@gmail.com>",
   "contributors": [
