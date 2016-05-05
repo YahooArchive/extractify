@@ -271,6 +271,7 @@ module.exports = function extractify(b, opts) {
                         hasExports: true
                     });
                     var lazyB;
+                    var wStream = fs.createWriteStream(dep._lazyOutfile);
 
                     delete lazyOps.entries;
                     delete lazyOps.require;
@@ -315,7 +316,16 @@ module.exports = function extractify(b, opts) {
                         b.emit('update', [filename]);
                     });
 
-                    lazyB.bundle().pipe(fs.createWriteStream(dep._lazyOutfile));
+                    wStream.on('finish', function() {
+                        b.emit('lazyWritten', dep._lazyOutfile);
+                    });
+
+                    wStream.on('pipe', function(src) {
+                        src.file = dep._lazyOutfile;
+                        b.emit('lazyStream', src);
+                    });
+
+                    lazyB.bundle().pipe(wStream);
                 };
 
                 if(!err) {
