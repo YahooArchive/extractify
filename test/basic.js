@@ -2,7 +2,6 @@ var browserify = require('browserify');
 var tap = require('tap');
 var test = require('tap').test;
 var vm = require('vm');
-var fs = require('fs');
 var path = require('path');
 
 test('basic', function (t) {
@@ -13,6 +12,10 @@ test('basic', function (t) {
     var b = browserify(['./files/main.js'], {
         basedir:__dirname
     });
+    var c = vm.createContext({});
+    var mainBundleSrc = "";
+    var lazyBundleSrc = {};
+    var pending = 2;
 
     // this is required to test the bundle
     b.require('./files/main.js',  { expose: 'main' });
@@ -21,26 +24,42 @@ test('basic', function (t) {
             {
                 entries: [
                     './files/dep4.js'
-
                 ],
                 outfile: './lazy_bundle/lazy_bundle_dep4.js'
             }
-
         ]
     });
-    b.bundle(function (err, src) {
-        var c = vm.createContext({});
-        vm.runInContext(src, c);
-        // make sure the lazy bundle written
-        setTimeout(function() {
-            var lazyBundleContent = fs.readFileSync(path.resolve(__dirname, './lazy_bundle/lazy_bundle_dep4.js'), {
-                encoding: 'utf8'
-            });
 
-            vm.runInContext(lazyBundleContent, c);
-            t.equal(c.require("/files/dep1.js"), 'dep1');
-            t.equal(c.require("/files/dep4.js"), 'dep5');
-            t.equal(c.require('main').dep3().loadDep4(), 'dep5');
-        }, 500);
+    b.on('lazyStream', function(src) {
+        src.on('data', function(chunk) {
+            if (lazyBundleSrc[src.file] === undefined) {
+                lazyBundleSrc[src.file] = [];
+            }
+            lazyBundleSrc[src.file].push(chunk);
+        }).on('end', function() {
+            pending--;
+            done();
+        });
     });
+
+    b.bundle(function (err, src) {
+        mainBundleSrc = src;
+        pending--;
+        done();
+    });
+
+    function done () {
+        if (pending !== 0) {
+            return;
+        }
+
+        vm.runInContext(mainBundleSrc, c);
+        Object.keys(lazyBundleSrc).forEach(function(key) {
+            vm.runInContext(lazyBundleSrc[key].join(''), c);
+        });
+
+        t.equal(c.require("/files/dep1.js"), 'dep1');
+        t.equal(c.require("/files/dep4.js"), 'dep5');
+        t.equal(c.require('main').dep3().loadDep4(), 'dep5');
+    }
 });
