@@ -1,0 +1,7 @@
+.nyc_output
+coverage
+node_modules
+**/.nyc_output
+**/coverage
+**/node_modules
+**/lazy_bundle
