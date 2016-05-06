@@ -1,4 +1,4 @@
-/* Copyright 2015, Yahoo Inc.
+/* Copyright 2016, Yahoo Inc.
    Copyrights licensed under the MIT License.
    See the accompanying LICENSE file for terms. */
 
@@ -33,7 +33,7 @@ function getBrowserifyInstance(conf) {
 
 test('bundle map soft inject', function (t) {
     var c = vm.createContext({});
-    var mainBundleSrc = "";
+    var mainBundleSrc = '';
     var lazyBundleSrc = {};
     var pending = 2;
     var b = getBrowserifyInstance(xtend(config, {
@@ -73,7 +73,7 @@ test('bundle map soft inject', function (t) {
         });
 
         t.equal(c.require('main').dep3().loadDep4(), 'dep5');
-        t.equal(c.require('main').dep2['dep2'], 'dep2');
+        t.equal(c.require('main').dep2.dep2, 'dep2');
         t.equal(c.require('main').dep2['./dep4'], '/lazy_bundle/lazy_bundle_dep4_map.js');
         t.equal(c.require('main').dep2['/files/dep4.js'], '/lazy_bundle/lazy_bundle_dep4_map.js');
 
@@ -82,7 +82,7 @@ test('bundle map soft inject', function (t) {
 
 test('bundle map hard inject', function (t) {
     var c = vm.createContext({});
-    var mainBundleSrc = "";
+    var mainBundleSrc = '';
     var lazyBundleSrc = {};
     var pending = 2;
     var b = getBrowserifyInstance(xtend(config, {

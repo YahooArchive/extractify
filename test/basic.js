@@ -1,4 +1,4 @@
-/* Copyright 2015, Yahoo Inc.
+/* Copyright 2016, Yahoo Inc.
    Copyrights licensed under the MIT License.
    See the accompanying LICENSE file for terms. */
 
@@ -17,7 +17,7 @@ test('basic', function (t) {
         basedir:__dirname
     });
     var c = vm.createContext({});
-    var mainBundleSrc = "";
+    var mainBundleSrc = '';
     var lazyBundleSrc = {};
     var pending = 2;
 
@@ -52,7 +52,7 @@ test('basic', function (t) {
         done();
     });
 
-    function done () {
+    function done() {
         if (pending !== 0) {
             return;
         }
@@ -62,8 +62,8 @@ test('basic', function (t) {
             vm.runInContext(lazyBundleSrc[key].join(''), c);
         });
 
-        t.equal(c.require("/files/dep1.js"), 'dep1');
-        t.equal(c.require("/files/dep4.js"), 'dep5');
+        t.equal(c.require('/files/dep1.js'), 'dep1');
+        t.equal(c.require('/files/dep4.js'), 'dep5');
         t.equal(c.require('main').dep3().loadDep4(), 'dep5');
     }
 });

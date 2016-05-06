@@ -1,8 +1,15 @@
 {
   "name": "extractify",
-  "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Browserify plugin to extract code to be lazy loaded into separate bundles",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yahoo/extractify"
+  },
+  "bugs": {
+    "url": "https://github.com/yahoo/extractify/issues",
+    "email": "tufandevrim@gmail.com"
+  },
   "keywords": [
     "browserify",
     "build-tools",
@@ -15,7 +22,8 @@
   ],
   "main": "index.js",
   "scripts": {
-    "test": "tap test/*.js --cov"
+    "test": "tap test/*.js --cov",
+    "lint": "eslint ."
   },
   "author": "Devrim Tufan <tufandevrim@gmail.com>",
   "contributors": [
@@ -48,5 +56,9 @@
     "react": "^0.14.5",
     "react-dom": "^0.14.5",
     "tap": "^5.7.0"
-  }
+  },
+  "pre-commit": [
+    "lint",
+    "test"
+  ]
 }

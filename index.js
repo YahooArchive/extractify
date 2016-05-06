@@ -1,4 +1,4 @@
-/* Copyright 2015, Yahoo Inc.
+/* Copyright 2016, Yahoo Inc.
    Copyrights licensed under the MIT License.
    See the accompanying LICENSE file for terms. */
 
@@ -119,9 +119,7 @@ module.exports = function extractify(b, opts) {
                     row.source = 'module.exports=' + JSON.stringify(mapObject, null, 4);
                 } else if (lazyBundleMapInjectSoft === false) {
                     fs.writeFileSync(path.resolve(basedir, lazyBundleMapDestination), 
-                        JSON.stringify(moduleBundleMap, null, 4), {
-                        encoding: 'utf8'
-                    });
+                        JSON.stringify(moduleBundleMap, null, 4), {encoding: 'utf8'});
                 }
             }
 
