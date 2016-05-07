@@ -1,6 +1,8 @@
 # extractify
 Browserify plugin to extract code to be lazy or on-demand loaded into separate bundles aka code-splitting.
 
+[![build status](https://secure.travis-ci.org/yahoo/extractify.png)](https://travis-ci.org/yahoo/extractify)
+
 ### install
 ```
 npm install extractify
@@ -11,9 +13,9 @@ Following diagram summarizes how extractify works:
 
 ![alt tag](diagram.png)
 
-1. `dep4` module in above diagram is determined to be loaded as on-demand and should be stripped from the main bundle `main_app.js`.
+1. `dep4` module in above diagram is determined to be loaded as on-demand and should be stripped from the main bundle `main.js`.
 2. Therefore it will have its own stripped bundle, `lazy_bundle_dep4.js` which will be loaded later.
-3. The stripped bundle will also include the modules what `only` `dep4` depends on. In this case `dep5` is only used by `dep4`. `dep1` module, on the other hand, is included in main bundle since it was already used by main_app.js.
+3. The stripped bundle will also include the modules what `only` `dep4` depends on. In this case `dep5` is only used by `dep4`. On the other hand, `dep1` module is included in `main_app_bundle.js` since it was already used by main.js.
 4. Optionally a map object which holds defer loaded module name and bundle name key value pairs can be injected into main entry or different `.json` config file soft or hard. See `bundleMapOption` options below
 
 
@@ -77,10 +79,7 @@ b.bundle().pipe(fs.createWriteStream('./bundles/main_app.js'))
 
 ### events
 #### b.on('lazyWritten', function (outfile) {})
-Emits right after the splitted bundle written into the file system
-```
-  outfile: name of the extracted bundle
-```
+Emits with lazy bundle `outfile` right after the splitted bundle written into the file system
 
 #### b.on('lazyStream', function (stream) {})
 Each splitted bundles will emits `stream` before written into filesystem.
