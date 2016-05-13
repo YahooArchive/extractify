@@ -270,6 +270,7 @@ module.exports = function extractify(b, opts) {
                 var depFile = '';
                 var buildLazyBundle = function(dep) {
                     var lazyOps = xtend(bopts, {
+                        extensions: ['/index.js'],
                         hasExports: true
                     });
                     var lazyB;

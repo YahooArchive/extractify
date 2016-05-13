@@ -1,6 +1,6 @@
 {
   "name": "extractify",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Browserify plugin to extract code to be lazy loaded into separate bundles",
   "repository": {
     "type": "git",
