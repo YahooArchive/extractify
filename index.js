@@ -144,6 +144,7 @@ module.exports = function extractify(b, opts) {
             var that = this; // eslint-disable-line
             var recordEntryFilesSha = shasum(recordEntryFiles);
             var lazyEntriesAll = [];
+            var lazyEntriesOutfileAll = {};
             var entryOptions = [];
             var allMDs = {};
 
@@ -153,6 +154,7 @@ module.exports = function extractify(b, opts) {
                 });
             }
 
+            // get all lazy entry configs
             opts.lazy.forEach(function(lazyConf) {
                 var lazyEntryRecords = [];
 
@@ -169,7 +171,13 @@ module.exports = function extractify(b, opts) {
                         id: lazyEntry,
                         order: 0
                     });
+
+                    if (lazyEntriesAll.indexOf(lazyEntry) >=0) {
+                        throw new Error('Duplicate lazy config entry');
+                    }
+
                     lazyEntriesAll.push(lazyEntry);
+                    lazyEntriesOutfileAll[lazyEntry] = lazyConf.outfile;
                 });
 
                 lazyEntryRecords = lazyEntryRecords.concat(recordTransforms);
@@ -180,17 +188,21 @@ module.exports = function extractify(b, opts) {
                     mainEntry: recordEntryFilesSha,
                     main: false,
                     lazyOutfile: lazyConf.outfile,
-                    exclude: []
+                    exclude: [],
+                    entryOutMap: {}
                 });
 
-                entryOptions.unshift({
-                    entryRecords: records,
-                    file: recordEntryFiles,
-                    mainEntry: recordEntryFilesSha,
-                    main: true,
-                    lazyOutfile: lazyConf.outfile,
-                    exclude: lazyEntriesAll
-                });
+            });
+
+            //finally get main config
+            entryOptions.unshift({
+                entryRecords: records,
+                file: recordEntryFiles,
+                mainEntry: recordEntryFilesSha,
+                main: true,
+                lazyOutfile: '',
+                exclude: lazyEntriesAll,
+                entryOutMap: lazyEntriesOutfileAll
             });
 
             async.each(entryOptions, function(xOptions, callback) {
@@ -200,7 +212,7 @@ module.exports = function extractify(b, opts) {
                     postFilter: function(id, file) {
                         if (x_md._xExcludedDeps.indexOf(file) >= 0) {
                             if (x_md._ismain) {
-                                updateModuleBundleMap(file, id, x_md._lazyOutfile);
+                                updateModuleBundleMap(file, id, x_md._xEntryOutMap[file]);
                             }
 
                             return false;
@@ -208,7 +220,7 @@ module.exports = function extractify(b, opts) {
 
                         if (x_md._xExcludedDeps.indexOf(id) >= 0) {
                             if (x_md._ismain) {
-                                updateModuleBundleMap(file, id, x_md._lazyOutfile);
+                                updateModuleBundleMap(file, id, x_md._xEntryOutMap[id]);
                             }
 
                             return false;
@@ -237,6 +249,7 @@ module.exports = function extractify(b, opts) {
                 x_md._xExposedDeps = [];
                 x_md._xExternalDeps = [];
                 x_md._xExcludedDeps = xOptions.exclude;
+                x_md._xEntryOutMap = xOptions.entryOutMap;
                 x_md._lazyOutfile = xOptions.lazyOutfile;
 
                 x_md.on('data', function(row) {
