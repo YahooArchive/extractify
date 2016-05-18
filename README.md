@@ -29,13 +29,14 @@ browserify -p [ extractify OPTIONS ]
 
 ### options
 ``` js
-// Sample OPTIONS
+// Sampe command line OPTIONS
+browserify test/files/main.js -p ['extractify' --lazy [ [ --entries [ './test/files/dep4.js' './test/files/dep6.js' ] --outfile './test/lazy_bundle/lazy_bundle.js' ] ] --bundleMapOption [ --injectSoft false --dest 'test/lazy_bundle/map.json' ] ] > test/lazy_bundle/main_bundle.js
+
+// Sample api OPTIONS
 {
-  {
-    bundleMapOption: {
-      injectSoft: false,
-      dest: 'lazy_bundle/map.json'
-    }
+  bundleMapOption: {
+    injectSoft: false,
+    dest: 'lazy_bundle/map.json'
   },
   lazy: [
     {
@@ -67,9 +68,10 @@ b.plugin('extractify', {
   lazy: [
     {
       entries: [
-        './files/dep4.js'
+        './files/dep4.js',
+        './files/dep6.js'
       ],
-      outfile: './bundles/lazy_bundle_dep4.js'
+      outfile: './bundles/lazy_bundle.js'
     }
   ]
 });
