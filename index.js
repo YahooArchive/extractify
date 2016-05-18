@@ -8,8 +8,10 @@ var async = require('async');
 var xtend = require('xtend');
 var shasum = require('shasum');
 var path = require('path');
+var processOptions = require('./lib/process_options');
 var browserify;
 var pipeline;
+
 
 function checkExistInArr(file, arr) {
     return ~arr.indexOf(file);
@@ -63,6 +65,7 @@ function getLazyBrowserify(referenceBundle, opt) {
 }
 
 module.exports = function extractify(b, opts) {
+
     var bopts = b._options;
     var basedir = bopts.basedir || process.cwd();
     var mainExternals = [];
@@ -72,6 +75,7 @@ module.exports = function extractify(b, opts) {
     browserify = b.constructor;
     pipeline = b.pipeline.constructor;
 
+    opts = processOptions(opts);
     b.on('reset', function() {
         onReset = true;
         addHooks();
@@ -90,7 +94,8 @@ module.exports = function extractify(b, opts) {
         var injectOnce = true;
         var mapObject = {};
 
-        if (lazyBundleMapOption && lazyBundleMapOption.injectSoft === false) {
+        if (lazyBundleMapOption &&
+            (lazyBundleMapOption.injectSoft === false || lazyBundleMapOption.injectSoft === 'false')) {
             lazyBundleMapInjectSoft = false;
         }
 
@@ -117,9 +122,10 @@ module.exports = function extractify(b, opts) {
                     mapObject = require(row.file);
                     mapObject = xtend(mapObject, moduleBundleMap);
                     row.source = 'module.exports=' + JSON.stringify(mapObject, null, 4);
-                } else if (lazyBundleMapInjectSoft === false) {
-                    fs.writeFileSync(path.resolve(basedir, lazyBundleMapDestination), 
+                } else if (lazyBundleMapInjectSoft === false && injectOnce) {
+                    fs.writeFileSync(path.resolve(basedir, lazyBundleMapDestination),
                         JSON.stringify(moduleBundleMap, null, 4), {encoding: 'utf8'});
+                    injectOnce = false;
                 }
             }
 
@@ -172,7 +178,7 @@ module.exports = function extractify(b, opts) {
                         order: 0
                     });
 
-                    if (lazyEntriesAll.indexOf(lazyEntry) >=0) {
+                    if (lazyEntriesAll.indexOf(lazyEntry) >= 0) {
                         throw new Error('Duplicate lazy config entry');
                     }
 
