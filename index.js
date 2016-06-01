@@ -9,229 +9,97 @@ var xtend = require('xtend');
 var shasum = require('shasum');
 var path = require('path');
 var processOptions = require('./lib/process_options');
-var browserify;
-var pipeline;
 
+module.exports = Extractify;
 
-function checkExistInArr(file, arr) {
-    return ~arr.indexOf(file);
-}
+function Extractify(b, opts) {
+    if (!(this instanceof Extractify)) { 
+        return new Extractify(b, opts);
+    }
+    var self = this;
+   
+    self.bopts = b._options;
+    self.basedir = self.bopts.basedir || process.cwd();
 
-function proxyMethod(method, source, destination) {
-    var oldMethod = source[method];
+    self.opts = processOptions(opts);
+    self.mainExternals = [];
+    self.moduleBundleMap = {};
+    self.lazyBundleMapDestination = self.opts.bundleMapOption ? self.opts.bundleMapOption.dest : false;
+    self.lazyBundleMapBaseDir = self.opts.bundleMapOption ? self.opts.bundleMapOption.basedir : false;
+    self.lazyBundleMapInjectSoft = true;
 
-    source[method] = function() {
-        var args = Array.prototype.slice.call(arguments);
+    if (self.opts.bundleMapOption &&
+        (self.opts.bundleMapOption.injectSoft === false || self.opts.bundleMapOption.injectSoft === 'false')) {
+        self.lazyBundleMapInjectSoft = false;
+    }
 
-        destination[method].apply(destination, args);
+    self.lazyBrowserifies = {};
+    self.onReset = false;
 
-        return oldMethod.apply(source, args);
-    };
-}
-
-function onlyPublicMethods(method) {
-    return method.indexOf('_') !== 0;
-}
-
-function notBundle(method) {
-    return method !== 'bundle';
-}
-
-function getLazyBrowserify(referenceBundle, opt) {
-    var browserifyInstance;
-
-    delete opt.entries;
-    delete opt.require;
-    delete opt.filter;
-
-    browserifyInstance = browserify(opt);
-
-    Object.keys(browserify.prototype)
-        .filter(onlyPublicMethods)
-        .filter(notBundle)
-        .forEach(function(method) {
-            proxyMethod(method, referenceBundle, browserifyInstance);
-        }
-    );
-
-    Object.keys(pipeline.prototype)
-        .filter(onlyPublicMethods)
-        .forEach(function(method) {
-            proxyMethod(method, referenceBundle.pipeline, browserifyInstance.pipeline);
-        }
-    );
-
-    return browserifyInstance;
-}
-
-module.exports = function extractify(b, opts) {
-
-    var bopts = b._options;
-    var basedir = bopts.basedir || process.cwd();
-    var mainExternals = [];
-    var moduleBundleMap = {};
-    var onReset = false;
-
-    browserify = b.constructor;
-    pipeline = b.pipeline.constructor;
-
-    opts = processOptions(opts);
     b.on('reset', function() {
-        onReset = true;
+        self.onReset = true;
         addHooks();
     });
 
     addHooks();
 
     function addHooks() {
+        self.moduleBundleMap = {};
+        self.lazyBrowserifies = {};
+
+        self.opts.lazy.forEach(function(lazyConf) {
+            var outFile = path.resolve(self.basedir, lazyConf.outfile);
+            var lazyOps = xtend(self.bopts, {
+                extensions: ['/index.js'], // I have to do this. Why?
+                hasExports: true
+            });
+            self.lazyBrowserifies[outFile] = getLazyBrowserify(b, lazyOps);
+        });
+
         var records = [];
         var recordEntryFiles = [];
         var recordTransforms = [];
-        var lazyBundleMapOption = opts.bundleMapOption;
-        var lazyBundleMapDestination = lazyBundleMapOption ? lazyBundleMapOption.dest : false;
-        var lazyBundleMapBaseDir = lazyBundleMapOption ? lazyBundleMapOption.basedir : false;
-        var lazyBundleMapInjectSoft = true;
-        var injectOnce = true;
-        var mapObject = {};
 
-        if (lazyBundleMapOption &&
-            (lazyBundleMapOption.injectSoft === false || lazyBundleMapOption.injectSoft === 'false')) {
-            lazyBundleMapInjectSoft = false;
-        }
-
-        function updateModuleBundleMap(file, id, outfile) {
-            outfile = outfile.replace(basedir, '');
-
-            if (lazyBundleMapBaseDir) {
-                outfile = outfile.replace(lazyBundleMapBaseDir, '/');
-            }
-
-            moduleBundleMap[id] = outfile;
-            moduleBundleMap[file.replace(basedir, '')] = outfile;
-        }
-
-        b.pipeline.get('label').push(through.obj(function(row, enc, next) {
-            if (!lazyBundleMapDestination) {
-                if (row.entry && injectOnce && lazyBundleMapInjectSoft) {
-                    row.source = 'if (typeof window !== "undefined") { window._extractedModuleBundleMap=' +
-                        JSON.stringify(moduleBundleMap) + ';}\n' + row.source;
-                    injectOnce = false;
-                }
-            } else {
-                if (lazyBundleMapInjectSoft && path.resolve(basedir, lazyBundleMapDestination) === row.file) {
-                    mapObject = require(row.file);
-                    mapObject = xtend(mapObject, moduleBundleMap);
-                    row.source = 'module.exports=' + JSON.stringify(mapObject, null, 4);
-                } else if (lazyBundleMapInjectSoft === false && injectOnce) {
-                    fs.writeFileSync(path.resolve(basedir, lazyBundleMapDestination),
-                        JSON.stringify(moduleBundleMap, null, 4), {encoding: 'utf8'});
-                    injectOnce = false;
-                }
-            }
-
-            this.push(row);
-            next();
-        }));
-
+        self.handleModuleMapBundle(b);
 
         b.pipeline.get('record').push(through.obj(function(row, enc, next) {
             records.push(row);
-
             if (row.file) {
                 recordEntryFiles.push(row.file);
             } else {
                 recordTransforms.push(xtend(row));
             }
-
             next(null, row);
-
         }, function(next) {
             // Stop the process for dependency detection
-            var that = this; // eslint-disable-line
-            var recordEntryFilesSha = shasum(recordEntryFiles);
-            var lazyEntriesAll = [];
-            var lazyEntriesOutfileAll = {};
-            var entryOptions = [];
+            var that = this;
             var allMDs = {};
+            var entryOptions = getEntryOptions(self.opts, self.basedir, records, recordEntryFiles, recordTransforms);
 
-            if (!onReset) {
+            if (!self.onReset) {
                 b._external.forEach(function(vendor) {
-                    mainExternals.push(vendor);
+                    self.mainExternals.push(vendor);
                 });
             }
-
-            // get all lazy entry configs
-            opts.lazy.forEach(function(lazyConf) {
-                var lazyEntryRecords = [];
-
-                lazyConf.entries = lazyConf.entries.map(function(entry) {
-                    return path.resolve(basedir, entry);
-                });
-                lazyConf.outfile = path.resolve(basedir, lazyConf.outfile);
-
-                lazyConf.entries.forEach(function(lazyEntry) {
-                    lazyEntryRecords.push({
-                        entry: false,
-                        expose: true,
-                        file: lazyEntry,
-                        id: lazyEntry,
-                        order: 0
-                    });
-
-                    if (lazyEntriesAll.indexOf(lazyEntry) >= 0) {
-                        throw new Error('Duplicate lazy config entry');
-                    }
-
-                    lazyEntriesAll.push(lazyEntry);
-                    lazyEntriesOutfileAll[lazyEntry] = lazyConf.outfile;
-                });
-
-                lazyEntryRecords = lazyEntryRecords.concat(recordTransforms);
-
-                entryOptions.push({
-                    entryRecords: lazyEntryRecords,
-                    file: lazyConf.entries,
-                    mainEntry: recordEntryFilesSha,
-                    main: false,
-                    lazyOutfile: lazyConf.outfile,
-                    exclude: [],
-                    entryOutMap: {}
-                });
-
-            });
-
-            //finally get main config
-            entryOptions.unshift({
-                entryRecords: records,
-                file: recordEntryFiles,
-                mainEntry: recordEntryFilesSha,
-                main: true,
-                lazyOutfile: '',
-                exclude: lazyEntriesAll,
-                entryOutMap: lazyEntriesOutfileAll
-            });
 
             async.each(entryOptions, function(xOptions, callback) {
                 var x_md;
                 var lazyB;
-                var depsOpsX = xtend(bopts, {
+                var depsOpsX = xtend(self.bopts, {
                     postFilter: function(id, file) {
                         if (x_md._xExcludedDeps.indexOf(file) >= 0) {
                             if (x_md._ismain) {
-                                updateModuleBundleMap(file, id, x_md._xEntryOutMap[file]);
+                                self.updateModuleBundleMap(file, id, x_md._xEntryOutMap[file]);
                             }
-
                             return false;
                         }
 
                         if (x_md._xExcludedDeps.indexOf(id) >= 0) {
                             if (x_md._ismain) {
-                                updateModuleBundleMap(file, id, x_md._xEntryOutMap[id]);
+                                self.updateModuleBundleMap(file, id, x_md._xEntryOutMap[id]);
                             }
-
                             return false;
                         }
-
                         return true;
                     }
                 });
@@ -243,7 +111,7 @@ module.exports = function extractify(b, opts) {
                 } else {
                     lazyB = getLazyBrowserify(b, depsOpsX);
                     // strip vendors
-                    mainExternals.forEach(function(vendor) {
+                    self.mainExternals.forEach(function(vendor) {
                         lazyB.external(vendor.replace('./', ''));
                     });
                     x_md = lazyB._createDeps(depsOpsX);
@@ -287,68 +155,6 @@ module.exports = function extractify(b, opts) {
             }, function(err) {
                 // All bundle deps calculated
                 var depFile = '';
-                var buildLazyBundle = function(dep) {
-                    var lazyOps = xtend(bopts, {
-                        extensions: ['/index.js'],
-                        hasExports: true
-                    });
-                    var lazyB;
-                    var wStream = fs.createWriteStream(dep._lazyOutfile);
-
-                    delete lazyOps.entries;
-                    delete lazyOps.require;
-                    delete lazyOps.filter;
-
-                    lazyB = getLazyBrowserify(b, lazyOps);
-
-                    //expose lazy module
-                    dep._entry.forEach(function(entry) {
-                        lazyB.require(entry, {
-                            expose: entry.replace(basedir, ''),
-                            entry: true
-                        });
-                    });
-
-                    // strip modules are already in main bundle
-                    dep._xExternalDeps.forEach(function(file) {
-                        lazyB.external(file, lazyOps);
-                    });
-
-                    // strip vendors
-                    mainExternals.forEach(function(vendor) {
-                        lazyB.external(vendor.replace('./', ''));
-                    });
-
-                    lazyB.pipeline.get('record').push(through.obj(function(row, enc, next) {
-                        next(null, row);
-                    }, function(next) {
-                        var me = this; // eslint-disable-line
-
-                        recordTransforms.forEach(function(trRow) {
-                            me.push(trRow);
-                        });
-                        next();
-                    }));
-
-                    if (b._watcher && !lazyB._watcher) {
-                        lazyB.plugin(require('watchify'));
-                    }
-
-                    lazyB.on('update', function(filename) {
-                        b.emit('update', [filename]);
-                    });
-
-                    wStream.on('finish', function() {
-                        b.emit('lazyWritten', dep._lazyOutfile);
-                    });
-
-                    wStream.on('pipe', function(src) {
-                        src.file = dep._lazyOutfile;
-                        b.emit('lazyStream', src);
-                    });
-
-                    lazyB.bundle().pipe(wStream);
-                };
 
                 if(!err) {
                     Object.keys(allMDs).forEach(function(key) {
@@ -375,12 +181,12 @@ module.exports = function extractify(b, opts) {
                     Object.keys(allMDs).forEach(function(key) {
                         // extract lazy modules
                         allMDs[key].mainDep._xExternalDeps.forEach(function(externalDep) {
-                            b.external(externalDep, bopts);
+                            b.external(externalDep, self.bopts);
                         });
 
                         // expose dependencies
                         allMDs[key].mainDep._xExposedDeps.forEach(function(exposedDep) {
-                            var exposedDepId = exposedDep.replace(basedir, '');
+                            var exposedDepId = exposedDep.replace(self.basedir, '');
 
                             that.push({
                                 expose: exposedDepId,
@@ -392,11 +198,11 @@ module.exports = function extractify(b, opts) {
 
                         Object.keys(allMDs[key].lazyDeps).forEach(function(lazyKey) {
                             // Create the lazy bundle now
-                            buildLazyBundle(allMDs[key].lazyDeps[lazyKey]);
+                            self.buildLazyBundle(allMDs[key].lazyDeps[lazyKey], b, recordTransforms, self);
                         });
                     });
 
-                    // Now we can let go the pipeline to the next step (=>deps)
+                    // Now we can let go the pipeline to the next step (=> deps)
                     next();
 
                 } else {
@@ -407,4 +213,241 @@ module.exports = function extractify(b, opts) {
     }
 
     return b;
+}
+
+Extractify.prototype.buildLazyBundle = function(dep, b, recordTransforms, self) {
+    var lazyB;
+    var wStream = fs.createWriteStream(dep._lazyOutfile);
+
+    // get browserify instance from the cache
+    lazyB = self.lazyBrowserifies[dep._lazyOutfile];
+
+    // expose lazy module
+    dep._entry.forEach(function(entry) {
+        // remove entries from the _external if already exists
+        if (lazyB._external.indexOf(entry) > -1) {
+            lazyB._external.splice(lazyB._external.indexOf(entry), 1);
+            lazyB._external.splice(lazyB._external.indexOf(entry.replace(self.basedir, '')), 1);
+        }
+        lazyB.require(entry, {
+            expose: entry.replace(self.basedir, ''),
+            entry: true
+        });
+    });
+
+    // strip the modules are already in main bundle
+    dep._xExternalDeps.forEach(function(file) {
+        lazyB.external(file, lazyB._options);
+    });
+
+    // strip the main entries
+    dep._xExcludedDeps.forEach(function(file) {
+        lazyB.external(file);
+    });
+
+    // strip vendors
+    self.mainExternals.forEach(function(vendor) {
+        lazyB.external(vendor.replace('./', ''));
+    });
+
+    lazyB.pipeline.get('record').push(through.obj(function(row, enc, next) {
+        next(null, row);
+    }, function(next) {
+        var me = this;
+
+        recordTransforms.forEach(function(trRow) {
+            me.push(trRow);
+        });
+        next();
+    }));
+
+    wStream.on('finish', function() {
+        b.emit('lazyWritten', dep._lazyOutfile);
+    });
+
+    wStream.on('pipe', function(src) {
+        src.file = dep._lazyOutfile;
+        b.emit('lazyStream', src);
+    });
+
+    lazyB.bundle().pipe(wStream);
 };
+
+Extractify.prototype.handleModuleMapBundle = function(b) {
+    var self = this;
+    var injectOnce = true;
+    var mapObject = {};
+
+    b.pipeline.get('label').push(through.obj(function(row, enc, next) {
+        if (!self.lazyBundleMapDestination) {
+            if (row.entry && injectOnce && self.lazyBundleMapInjectSoft) {
+                row.source = 'if (typeof window !== "undefined") { window._extractedModuleBundleMap=' +
+                    JSON.stringify(self.moduleBundleMap) + ';}\n' + row.source;
+                injectOnce = false;
+            }
+        } else {
+            if (self.lazyBundleMapInjectSoft && path.resolve(self.basedir, self.lazyBundleMapDestination) === row.file) {
+                mapObject = require(row.file);
+                mapObject = xtend(mapObject, self.moduleBundleMap);
+                row.source = 'module.exports=' + JSON.stringify(mapObject, null, 4);
+            } else if (self.lazyBundleMapInjectSoft === false && injectOnce) {
+                fs.writeFileSync(path.resolve(self.basedir, self.lazyBundleMapDestination),
+                    JSON.stringify(self.moduleBundleMap, null, 4), {encoding: 'utf8'});
+                injectOnce = false;
+            }
+        }
+
+        this.push(row);
+        next();
+    }));
+}
+
+Extractify.prototype.updateModuleBundleMap = function(file, id, outfile) {
+    outfile = outfile.replace(this.basedir, '');
+
+    if (this.lazyBundleMapBaseDir) {
+        outfile = outfile.replace(this.lazyBundleMapBaseDir, '/');
+    }
+
+    this.moduleBundleMap[id] = outfile;
+    this.moduleBundleMap[file.replace(this.basedir, '')] = outfile;
+}
+
+function getEntryOptions(opts, basedir, records, recordEntryFiles, recordTransforms) {
+    // get all lazy entry configs
+    var entryOptions = [];
+    var recordEntryFilesSha = shasum(recordEntryFiles);
+    var lazyEntriesAll = [];
+    var lazyEntriesOutfileAll = {};
+
+    opts.lazy.forEach(function(lazyConf) {
+        var lazyEntryRecords = [];
+
+        lazyConf.entries = lazyConf.entries.map(function(entry) {
+            return path.resolve(basedir, entry);
+        });
+        lazyConf.outfile = path.resolve(basedir, lazyConf.outfile);
+
+        lazyConf.entries.forEach(function(lazyEntry) {
+            lazyEntryRecords.push({
+                entry: false,
+                expose: true,
+                file: lazyEntry,
+                id: lazyEntry,
+                order: 0
+            });
+
+            if (lazyEntriesAll.indexOf(lazyEntry) >= 0) {
+                throw new Error('Duplicate lazy config entry');
+            }
+
+            lazyEntriesAll.push(lazyEntry);
+            lazyEntriesOutfileAll[lazyEntry] = lazyConf.outfile;
+        });
+
+        lazyEntryRecords = lazyEntryRecords.concat(recordTransforms);
+
+        entryOptions.push({
+            entryRecords: lazyEntryRecords,
+            file: lazyConf.entries,
+            mainEntry: recordEntryFilesSha,
+            main: false,
+            lazyOutfile: lazyConf.outfile,
+            exclude: recordEntryFiles, // exclude main entry files
+            entryOutMap: {}
+        });
+
+    });
+
+    //finally get main config
+    entryOptions.unshift({
+        entryRecords: records,
+        file: recordEntryFiles,
+        mainEntry: recordEntryFilesSha,
+        main: true,
+        lazyOutfile: '',
+        exclude: lazyEntriesAll,
+        entryOutMap: lazyEntriesOutfileAll
+    });
+
+    return entryOptions;
+}
+
+
+function getLazyBrowserify(referenceBundle, opt) {
+    var browserifyInstance;
+    var browserify = referenceBundle.constructor;
+    var pipeline = referenceBundle.pipeline.constructor;
+
+    delete opt.entries;
+    delete opt.require;
+    delete opt.filter;
+
+    opt.plugin = nonExtractifyPlugins(opt.plugin);
+
+    browserifyInstance = browserify(opt);
+    proxy(browserify, referenceBundle, browserifyInstance, {
+        filters: [onlyPublicMethods],
+        exclude: ['bundle']
+    });
+
+    proxy(pipeline, referenceBundle.pipeline, browserifyInstance.pipeline, {
+        filters: [onlyPublicMethods]
+    });
+
+    return browserifyInstance;
+}
+
+function proxy(iface, src, dest, opts) {
+    opts = opts || {};
+    var filters = opts.filters || [];
+    var exclude = opts.exclude || [];
+
+    if (exclude.length) {
+        filters.push(notIn(exclude));
+    }
+
+    filters.reduce(function (methods, fn) {
+        return methods.filter(fn);
+    }, Object.keys(iface.prototype))
+    .forEach(function(method) {
+        proxyMethod(method, src, dest);
+    });
+}
+
+function proxyMethod(method, source, destination) {
+    var oldMethod = source[method];
+    source[method] = function() {
+        var args = Array.prototype.slice.call(arguments);
+        destination[method].apply(destination, args);
+        return oldMethod.apply(source, args);
+    }
+}
+
+function notIn(methods) {
+    return function(method) {
+        return methods.indexOf(method) === -1;
+    };
+}
+
+
+function nonExtractifyPlugins(plugins) {
+    return [].concat(plugins).filter(Boolean).filter(function(plugin) {
+        if (Array.isArray(plugin)) plugin = plugin[0];
+        if (typeof plugin === 'string') {
+            return plugin !== 'extractify';
+        } else if(Extractify.constructor === plugin.constructor) {
+            return false;
+        }
+        return true;
+    });
+}
+
+function onlyPublicMethods(method) {
+    return method.indexOf('_') !== 0;
+}
+
+function checkExistInArr(file, arr) {
+    return ~arr.indexOf(file);
+}
+

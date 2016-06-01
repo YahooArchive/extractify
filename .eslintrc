@@ -1,7 +1,16 @@
 ---
+root: true
+extends: "eslint:recommended"
 env:
   node: true
-extend: "eslint:recommended"
+  es6: true
+  browser: true
+plugins:
+  - react
+parserOptions:
+  sourceType: module
+  ecmaFeatures:
+    jsx: true
 rules:
-  indent: [2, 4, {SwitchCase: 1}]
-  quotes: [2, 'single']
+  react/jsx-uses-vars: 2
+  no-console: 0

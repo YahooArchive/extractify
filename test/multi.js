@@ -3,10 +3,8 @@
    See the accompanying LICENSE file for terms. */
 
 var browserify = require('browserify');
-var tap = require('tap');
 var test = require('tap').test;
 var vm = require('vm');
-var path = require('path');
 
 test('multi', function (t) {
     t.plan(4);
