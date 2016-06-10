@@ -50,7 +50,7 @@ function Extractify(b, opts) {
         self.opts.lazy.forEach(function(lazyConf) {
             var outFile = path.resolve(self.basedir, lazyConf.outfile);
             var lazyOps = xtend(self.bopts, {
-                extensions: ['/index.js'], // I have to do this. Why?
+                extensions: ['/index.js', '/index.jsx'], // I have to do this. Why?
                 hasExports: true
             });
             self.lazyBrowserifies[outFile] = getLazyBrowserify(b, lazyOps);
