@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.DS_Store
+.nyc_output
+
+# docs directory
+docs
+
+# build directory
+build
+bundle
+artifacts
+coverage
